@@ -135,6 +135,7 @@ class StateTest(BaseTest):
             reward=0,  # Reward on state tests is always zero
             eips=eips,
             debug_output_path=self.get_next_transition_tool_output_path(),
+            state_test=True,
         )
 
         try:

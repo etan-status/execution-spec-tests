@@ -56,7 +56,7 @@ blobhash_index_values = [
 
 
 @pytest.mark.parametrize("blobhash_index", blobhash_index_values)
-@pytest.mark.with_all_tx_types
+@pytest.mark.with_all_tx_types(selector=lambda tx_type: tx_type != 4)
 def test_blobhash_gas_cost(
     pre: Alloc,
     tx_type: int,

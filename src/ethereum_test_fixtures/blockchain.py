@@ -31,6 +31,7 @@ from ethereum_test_types.types import (
     ConsolidationRequestGeneric,
     DepositRequest,
     DepositRequestGeneric,
+    EngineTransactionFixtureConverter,
     Requests,
     Transaction,
     TransactionFixtureConverter,
@@ -210,7 +211,8 @@ class FixtureExecutionPayload(CamelModel):
 
     block_hash: Hash
 
-    transactions: List[Bytes]
+    transactions: List["FixtureEngineTransaction"] | List[Bytes] = Field(
+        ..., union_mode="left_to_right")
     withdrawals: List[Withdrawal] | None = None
     deposit_requests: List[DepositRequest] | None = None
     withdrawal_requests: List[WithdrawalRequest] | None = None
@@ -230,7 +232,10 @@ class FixtureExecutionPayload(CamelModel):
         """
         return cls(
             **header.model_dump(exclude={"rlp"}, exclude_none=True),
-            transactions=[tx.rlp for tx in transactions],
+            transactions=(
+                [FixtureEngineTransaction.from_transaction(tx) for tx in transactions]
+                if 4 in header.fork.tx_types() else [tx.rlp for tx in transactions]
+            ),
             withdrawals=withdrawals,
             deposit_requests=requests.deposit_requests() if requests is not None else None,
             withdrawal_requests=requests.withdrawal_requests() if requests is not None else None,
@@ -354,6 +359,23 @@ class FixtureTransaction(TransactionFixtureConverter, TransactionGeneric[ZeroPad
         return cls(**tx.model_dump())
 
 
+class FixtureEngineTransaction(
+    EngineTransactionFixtureConverter, TransactionGeneric[ZeroPaddedHexNumber]
+):
+    """
+    Representation of an SSZ Ethereum transaction within an execution payload.
+    """
+
+    authorization_list: List[FixtureAuthorizationTuple] | None = None
+
+    @classmethod
+    def from_transaction(cls, tx: Transaction) -> "FixtureEngineTransaction":
+        """
+        Returns a FixtureEngineTransaction from a Transaction.
+        """
+        return cls(**tx.model_dump())
+
+
 class FixtureWithdrawal(WithdrawalGeneric[ZeroPaddedHexNumber]):
     """
     Structure to represent a single withdrawal of a validator's balance from
@@ -437,7 +459,10 @@ class FixtureBlockBase(CamelModel):
         """
         block = [
             self.header.rlp_encode_list,
-            [tx.serializable_list for tx in txs],
+            (
+                [tx.ssz_bytes for tx in txs] if 4 in self.header.fork.tx_types()
+                else [tx.serializable_list for tx in txs]
+            ),
             self.ommers,  # TODO: This is incorrect, and we probably need to serialize the ommers
         ]
 

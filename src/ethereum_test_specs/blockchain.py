@@ -350,7 +350,7 @@ class BlockchainTest(BaseTest):
             ommers_hash=EmptyOmmersRoot,
             fee_recipient=0,
             state_root=state_root,
-            transactions_trie=EmptyTrieRoot,
+            transactions_trie=Transaction.list_root([], fork),
             receipts_root=EmptyTrieRoot,
             logs_bloom=0,
             difficulty=0x20000 if env.difficulty is None else env.difficulty,
@@ -371,6 +371,7 @@ class BlockchainTest(BaseTest):
             requests_root=Requests(root=[]).trie_root
             if fork.header_requests_required(0, 0)
             else None,
+            fork=fork,
         )
 
         return (
@@ -430,6 +431,7 @@ class BlockchainTest(BaseTest):
             reward=fork.get_reward(env.number, env.timestamp),
             eips=eips,
             debug_output_path=self.get_next_transition_tool_output_path(),
+            state_test=False,
         )
 
         try:
@@ -468,7 +470,7 @@ class BlockchainTest(BaseTest):
                 | env.model_dump(exclude_none=True, exclude={"blob_gas_used"})
             ),
             blob_gas_used=blob_gas_used,
-            transactions_trie=Transaction.list_root(txs),
+            transactions_trie=Transaction.list_root(txs, fork),
             extra_data=block.extra_data if block.extra_data is not None else b"",
             fork=fork,
         )
@@ -481,6 +483,7 @@ class BlockchainTest(BaseTest):
             # Modify any parameter specified in the `rlp_modifier` after
             # transition tool processing.
             header = block.rlp_modifier.apply(header)
+            header.fork = fork  # Deleted during `apply`` because `exclude=True`
 
         requests = None
         if fork.header_requests_required(header.number, header.timestamp):
@@ -587,6 +590,7 @@ class BlockchainTest(BaseTest):
                     ]
                     if requests is not None
                     else None,
+                    fork=fork,
                 ).with_rlp(txs=txs, requests=requests)
                 if block.exception is None:
                     fixture_blocks.append(fixture_block)

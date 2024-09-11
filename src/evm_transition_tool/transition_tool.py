@@ -249,6 +249,7 @@ class TransitionTool(FixtureVerifier):
         fork_name: str
         chain_id: int = field(default=1)
         reward: int = field(default=0)
+        state_test: bool = field(default=False)
 
         def to_input(self) -> TransitionToolInput:
             """
@@ -438,6 +439,8 @@ class TransitionTool(FixtureVerifier):
             f"--state.chainid={t8n_data.chain_id}",
             f"--state.reward={t8n_data.reward}",
         ]
+        if t8n_data.state_test:
+            args += ["--state-test"]
 
         if self.trace:
             args.append("--trace")
@@ -498,6 +501,7 @@ class TransitionTool(FixtureVerifier):
         reward: int = 0,
         eips: Optional[List[int]] = None,
         debug_output_path: str = "",
+        state_test = False,
     ) -> TransitionToolOutput:
         """
         Executes the relevant evaluate method as required by the `t8n` tool.
@@ -520,6 +524,7 @@ class TransitionTool(FixtureVerifier):
             fork_name=fork_name,
             chain_id=chain_id,
             reward=reward,
+            state_test=state_test,
         )
 
         if self.t8n_use_stream:

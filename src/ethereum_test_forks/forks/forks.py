@@ -808,6 +808,20 @@ class Prague(Cancun):
         return Version.parse("1.0.0")  # set a high version; currently unknown
 
     @classmethod
+    def tx_types(cls, block_number: int = 0, timestamp: int = 0) -> List[int]:
+        """
+        At Prague, SSZ transactions are introduced
+        """
+        return [4] + super(Prague, cls).tx_types(block_number, timestamp)
+
+    @classmethod
+    def contract_creating_tx_types(cls, block_number: int = 0, timestamp: int = 0) -> List[int]:
+        """
+        At Prague, SSZ transactions are introduced
+        """
+        return [4] + super(Prague, cls).contract_creating_tx_types(block_number, timestamp)
+
+    @classmethod
     def precompiles(cls, block_number: int = 0, timestamp: int = 0) -> List[Address]:
         """
         At Prague, pre-compile for BLS operations are added:

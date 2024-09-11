@@ -4,7 +4,13 @@ Useful types for generating Ethereum tests.
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, ClassVar, Dict, Generic, List, Literal, Sequence, Tuple
+from typing import Any, ClassVar, Dict, Generic, List, Literal, Optional, Sequence, Tuple
+
+from remerkleable.basic import uint8, uint64, uint256
+from remerkleable.byte_arrays import ByteList, ByteVector, Bytes32
+from remerkleable.complex import Container, List as SszList
+from remerkleable.stable_container import StableContainer
+import snappy
 
 from coincurve.keys import PrivateKey, PublicKey
 from ethereum import rlp as eth_rlp
@@ -653,6 +659,201 @@ class TransactionTransitionToolConverter(CamelModel):
         return default
 
 
+class EngineTransactionFixtureConverter(TransactionFixtureConverter):
+    """
+    Handler for representing an SSZ transaction on the engine API.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_engine(cls, tx: Any) -> Any:
+        if isinstance(tx, dict) and "payload" in tx:
+            payload = tx.pop("payload")
+            if "type" in payload:
+                tx["type"] = payload.pop("type")
+            else:
+                tx["type"] = "0x04"
+            if "chainId" in payload:
+                tx["chainId"] = payload.pop("chainId")
+            if "nonce" in payload:
+                tx["nonce"] = payload.pop("nonce")
+            if "maxFeesPerGas" in payload:
+                maxFeesPerGas = payload.pop("maxFeesPerGas")
+                if "regular" in maxFeesPerGas:
+                    if tx.get("type", None) in ["0x00", "0x01"]:
+                        tx["gasPrice"] = maxFeesPerGas.pop("regular")
+                    else:
+                        tx["maxFeePerGas"] = maxFeesPerGas.pop("regular")
+                if "blob" in maxFeesPerGas:
+                    tx["maxFeePerBlobGas"] = maxFeesPerGas.pop("blob")
+                    assert payload.get("maxPriorityFeesPerGas", {}).pop("blob", None) == "0x00"
+                assert len(maxFeesPerGas) == 0
+            if "maxPriorityFeesPerGas" in payload:
+                maxPriorityFeesPerGas = payload.pop("maxPriorityFeesPerGas")
+                if "regular" in maxPriorityFeesPerGas:
+                    tx["maxPriorityFeePerGas"] = maxPriorityFeesPerGas.pop("regular")
+                assert len(maxPriorityFeesPerGas) == 0
+            if "gas" in payload:
+                tx["gasLimit"] = payload.pop("gas")
+            if "to" in payload:
+                tx["to"] = payload.pop("to")
+            if "value" in payload:
+                tx["value"] = payload.pop("value")
+            if "input" in payload:
+                tx["data"] = payload.pop("input")
+            if "accessList" in payload:
+                tx["accessList"] = payload.pop("accessList")
+            if "blobVersionedHashes" in payload:
+                tx["blobVersionedHashes"] = payload.get("blobVersionedHashes")
+            assert len(payload) == 0
+
+            from_ = tx.pop("from")
+            secp256k1_signature = bytes.fromhex(from_.pop("secp256k1Signature")[2:])
+            v, r, s = (
+                U256(secp256k1_signature[64]),
+                U256.from_be_bytes(secp256k1_signature[0:32]),
+                U256.from_be_bytes(secp256k1_signature[32:64]),
+            )
+            if tx["type"] == "0x00":
+                if tx.get("chainId", None) is not None:
+                    v += 35 + 2 * U256.from_be_bytes(bytes.fromhex(tx["chainId"][2:]))
+                else:
+                    v += 27
+            if v == 0:
+                tx["v"] = "0x00"
+            else:
+                tx["v"] = "0x" + v.to_be_bytes().hex()
+            tx["r"] = "0x" + r.to_be_bytes().hex()
+            tx["s"] = "0x" + s.to_be_bytes().hex()
+            tx["sender"] = from_.pop("address", None)
+            assert len(from_) == 0
+        return tx
+
+    @model_serializer(mode="wrap", when_used="json-unless-none")
+    def serialize_engine(self, serializer):
+        tx = serializer(self)
+        if tx is not None:
+            payload = {}
+            if "type" in tx:
+                payload["type"] = tx.pop("type")
+                if payload["type"] == "0x04":
+                    del payload["type"]
+            if "chainId" in tx:
+                payload["chainId"] = tx.pop("chainId")
+            if "nonce" in tx:
+                payload["nonce"] = tx.pop("nonce")
+            if "gasPrice" in tx:
+                payload["maxFeesPerGas"] = {"regular": tx.pop("gasPrice")}
+            if "maxPriorityFeePerGas" in tx:
+                payload["maxPriorityFeesPerGas"] = {"regular": tx.pop("maxPriorityFeePerGas")}
+            if "maxFeePerGas" in tx:
+                payload["maxFeesPerGas"] = {"regular": tx.pop("maxFeePerGas")}
+            if "gasLimit" in tx:
+                payload["gas"] = tx.pop("gasLimit")
+            if "to" in tx:
+                payload["to"] = tx.pop("to")
+            if "value" in tx:
+                payload["value"] = tx.pop("value")
+            if "data" in tx:
+                payload["input"] = tx.pop("data")
+            if "accessList" in tx:
+                payload["accessList"] = tx.pop("accessList")
+            if "maxFeePerBlobGas" in tx:
+                payload["maxFeesPerGas"]["blob"] = tx.pop("maxFeePerBlobGas")
+                if "maxPriorityFeesPerGas" in payload:
+                    payload["maxPriorityFeesPerGas"]["blob"] = "0x00"
+            if "blobVersionedHashes" in tx:
+                payload["blobVersionedHashes"] = tx.pop("blobVersionedHashes")
+            tx["payload"] = payload
+
+            from_ = {}
+            if "sender" in tx:
+                from_["address"] = tx.pop("sender")
+            if "v" in tx or "r" in tx or "s" in tx:
+                v = U256.from_be_bytes(bytes.fromhex(tx.pop("v")[2:]))
+                r = U256.from_be_bytes(bytes.fromhex(tx.pop("r")[2:]))
+                s = U256.from_be_bytes(bytes.fromhex(tx.pop("s")[2:]))
+                if payload.get("type", None) == "0x00":
+                    y_parity = (v & 0x1) == 0
+                else:
+                    y_parity = (v != 0)
+                from_["secp256k1Signature"] = "0x" + (
+                    r.to_be_bytes32() + s.to_be_bytes32()
+                    + bytes([0x01 if y_parity else 0x00])
+                ).hex()
+            tx["from"] = from_
+        return tx
+
+
+class TransactionType(uint8):
+    pass
+
+class Hash32(Bytes32):
+    pass
+
+class ExecutionAddress(ByteVector[20]):
+    pass
+
+class VersionedHash(Bytes32):
+    pass
+
+class ChainId(uint64):
+    pass
+
+class FeePerGas(uint256):
+    pass
+
+SECP256K1_SIGNATURE_SIZE = 32 + 32 + 1
+MAX_TRANSACTION_SIGNATURE_FIELDS = uint64(2**4)
+MAX_FEES_PER_GAS_FIELDS = uint64(2**4)
+MAX_CALLDATA_SIZE = uint64(2**24)
+MAX_ACCESS_LIST_STORAGE_KEYS = uint64(2**19)
+MAX_ACCESS_LIST_SIZE = uint64(2**19)
+MAX_BLOB_COMMITMENTS_PER_BLOCK = uint64(2**12)
+MAX_TRANSACTION_PAYLOAD_FIELDS = uint64(2**5)
+MAX_TRANSACTIONS_PER_PAYLOAD = uint64(2**20)
+
+class ExecutionSignature(StableContainer[MAX_TRANSACTION_SIGNATURE_FIELDS]):
+    address: Optional[ExecutionAddress]
+    secp256k1_signature: Optional[ByteVector[SECP256K1_SIGNATURE_SIZE]]
+
+class FeesPerGas(StableContainer[MAX_FEES_PER_GAS_FIELDS]):
+    regular: Optional[FeePerGas]
+
+    # EIP-4844
+    blob: Optional[FeePerGas]
+
+class AccessTuple(Container):
+    address: ExecutionAddress
+    storage_keys: SszList[Hash32, MAX_ACCESS_LIST_STORAGE_KEYS]
+
+class TransactionPayload(StableContainer[MAX_TRANSACTION_PAYLOAD_FIELDS]):
+    # EIP-2718
+    type_: Optional[TransactionType]
+
+    # EIP-155
+    chain_id: Optional[ChainId]
+
+    nonce: Optional[uint64]
+    max_fees_per_gas: Optional[FeesPerGas]
+    gas: Optional[uint64]
+    to: Optional[ExecutionAddress]
+    value: Optional[uint256]
+    input_: Optional[ByteList[MAX_CALLDATA_SIZE]]
+
+    # EIP-2930
+    access_list: Optional[SszList[AccessTuple, MAX_ACCESS_LIST_SIZE]]
+
+    # EIP-1559
+    max_priority_fees_per_gas: Optional[FeesPerGas]
+
+    # EIP-4844
+    blob_versioned_hashes: Optional[SszList[VersionedHash, MAX_BLOB_COMMITMENTS_PER_BLOCK]]
+
+class SszTransaction(Container):
+    payload: TransactionPayload
+    from_: ExecutionSignature
+
 class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConverter):
     """
     Generic object that can represent all Ethereum transaction types.
@@ -668,7 +869,7 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
     error: List[TransactionException] | TransactionException | None = Field(None, exclude=True)
 
     protected: bool = Field(True, exclude=True)
-    rlp_override: bytes | None = Field(None, exclude=True)
+    tx_override: Optional["Transaction"] = Field(None, exclude=True)
 
     wrapped_blob_transaction: bool = Field(False, exclude=True)
     blobs: Sequence[Bytes] | None = Field(None, exclude=True)
@@ -989,12 +1190,56 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
         Returns bytes of the serialized representation of the transaction,
         which is almost always RLP encoding.
         """
-        if self.rlp_override is not None:
-            return self.rlp_override
+        if self.tx_override is not None:
+            return self.tx_override.rlp
         if self.ty > 0:
             return bytes([self.ty]) + eth_rlp.encode(self.payload_body)
         else:
             return eth_rlp.encode(self.payload_body)
+
+    @cached_property
+    def ssz(self) -> SszTransaction:
+        """
+        Returns bytes of the serialized representation of the transaction,
+        converting RLP transactions to SSZ.
+        """
+        if self.tx_override is not None:
+            tx = self.tx_override
+        else:
+            tx = self
+
+        return SszTransaction(
+            payload=TransactionPayload(
+                type_=TransactionType(tx.ty) if tx.ty != 4 else None,
+                chain_id=tx.chain_id,
+                nonce=tx.nonce,
+                max_fees_per_gas=FeesPerGas(
+                    regular=tx.max_fee_per_gas if "max_fee_per_gas" in tx else tx.gas_price,
+                    blob=tx.max_fee_per_blob_gas,
+                ),
+                gas=tx.gas_limit,
+                to=tx.to,
+                value=tx.value,
+                input_=tx.data,
+                access_list=[AccessTuple(
+                    address=access_tuple.address,
+                    storage_keys=access_tuple.storage_keys,
+                ) for access_tuple in tx.access_list] if tx.access_list is not None else None,
+                max_priority_fees_per_gas=FeesPerGas(
+                    regular=tx.max_priority_fee_per_gas,
+                    blob=0 if "max_fee_per_blob_gas" in tx else None,
+                ) if "max_priority_fee_per_gas" in tx else None,
+                blob_versioned_hashes=tx.blob_versioned_hashes,
+            ),
+            from_=ExecutionSignature(
+                address=tx.sender,
+                secp256k1_signature=self.signature_bytes if tx.r is not None else None,
+            ),
+        )
+
+    @cached_property
+    def ssz_bytes(self) -> bytes:
+        return bytes([0x04]) + snappy.StreamCompressor().add_chunk(self.ssz.encode_bytes())
 
     @cached_property
     def hash(self) -> Hash:
@@ -1041,14 +1286,19 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
         return self.rlp if self.ty > 0 else self.payload_body
 
     @staticmethod
-    def list_root(input_txs: List["Transaction"]) -> Hash:
+    def list_root(input_txs: List["Transaction"], fork: Fork) -> Hash:
         """
         Returns the transactions root of a list of transactions.
         """
-        t = HexaryTrie(db={})
-        for i, tx in enumerate(input_txs):
-            t.set(eth_rlp.encode(Uint(i)), tx.rlp)
-        return Hash(t.root_hash)
+        if 4 in fork.tx_types():
+            return Hash(SszList[SszTransaction, MAX_TRANSACTIONS_PER_PAYLOAD](
+                [tx.ssz for tx in input_txs]
+            ).hash_tree_root())
+        else:
+            t = HexaryTrie(db={})
+            for i, tx in enumerate(input_txs):
+                t.set(eth_rlp.encode(Uint(i)), tx.rlp)
+            return Hash(t.root_hash)
 
     @staticmethod
     def list_blob_versioned_hashes(input_txs: List["Transaction"]) -> List[Hash]:
