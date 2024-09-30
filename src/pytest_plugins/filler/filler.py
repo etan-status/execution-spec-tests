@@ -5,8 +5,6 @@ Top-level pytest configuration file providing:
 and that modifies pytest hooks in order to fill test specs for all tests and
 writes the generated fixtures to file.
 """
-
-import argparse
 import configparser
 import datetime
 import os
@@ -80,9 +78,10 @@ def pytest_addoption(parser: pytest.Parser):
         action="store",
         dest="evm_bin",
         type=Path,
-        default=None,
+        default="ethereum-spec-evm-resolver",
         help=(
-            "Path to an evm executable that provides `t8n`. Default: First 'evm' entry in PATH."
+            "Path to an evm executable (or name of an executable in the PATH) that provides `t8n`."
+            " Default: `ethereum-spec-evm-resolver`."
         ),
     )
     evm_group.addoption(
@@ -189,16 +188,6 @@ def pytest_addoption(parser: pytest.Parser):
         dest="base_dump_dir",
         default="",
         help="Path to dump the transition tool debug output.",
-    )
-
-    internal_group = parser.getgroup("internal", "Internal arguments")
-    internal_group.addoption(
-        "--session-temp-folder",
-        action="store",
-        dest="session_temp_folder",
-        type=Path,
-        default=None,
-        help=argparse.SUPPRESS,
     )
 
 
@@ -604,11 +593,6 @@ def get_fixture_collection_scope(fixture_name, config):
 
 
 @pytest.fixture(scope="session")
-def session_temp_folder(request) -> Path | None:  # noqa: D103
-    return request.config.option.session_temp_folder
-
-
-@pytest.fixture(scope="session")
 def generate_index(request) -> bool:  # noqa: D103
     return request.config.option.generate_index
 
@@ -823,6 +807,7 @@ def base_test_parametrizer(cls: Type[BaseTest]):
                     kwargs["pre"] = pre
                 super(BaseTestWrapper, self).__init__(*args, **kwargs)
                 fixture = self.generate(
+                    request=request,
                     t8n=t8n,
                     fork=fork,
                     fixture_format=fixture_format,

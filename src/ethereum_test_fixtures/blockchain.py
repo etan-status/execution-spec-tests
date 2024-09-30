@@ -234,7 +234,7 @@ class FixtureExecutionPayload(CamelModel):
             **header.model_dump(exclude={"rlp"}, exclude_none=True),
             transactions=(
                 [FixtureEngineTransaction.from_transaction(tx) for tx in transactions]
-                if 4 in header.fork.tx_types() else [tx.rlp for tx in transactions]
+                if 0x1f in header.fork.tx_types() else [tx.rlp for tx in transactions]
             ),
             withdrawals=withdrawals,
             deposit_requests=requests.deposit_requests() if requests is not None else None,
@@ -460,7 +460,7 @@ class FixtureBlockBase(CamelModel):
         block = [
             self.header.rlp_encode_list,
             (
-                [tx.ssz_bytes for tx in txs] if 4 in self.header.fork.tx_types()
+                [tx.ssz_bytes for tx in txs] if 0x1f in self.header.fork.tx_types()
                 else [tx.serializable_list for tx in txs]
             ),
             self.ommers,  # TODO: This is incorrect, and we probably need to serialize the ommers

@@ -5,6 +5,7 @@ Ethereum blockchain test spec definition and filler.
 from pprint import pprint
 from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tuple, Type
 
+import pytest
 from pydantic import ConfigDict, Field, field_validator
 
 from ethereum_test_base_types import (
@@ -483,7 +484,7 @@ class BlockchainTest(BaseTest):
             # Modify any parameter specified in the `rlp_modifier` after
             # transition tool processing.
             header = block.rlp_modifier.apply(header)
-            header.fork = fork  # Deleted during `apply`` because `exclude=True`
+            header.fork = fork  # Deleted during `apply` because `exclude=True`
 
         requests = None
         if fork.header_requests_required(header.number, header.timestamp):
@@ -718,6 +719,7 @@ class BlockchainTest(BaseTest):
 
     def generate(
         self,
+        request: pytest.FixtureRequest,
         t8n: TransitionTool,
         fork: Fork,
         fixture_format: FixtureFormats,

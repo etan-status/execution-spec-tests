@@ -464,6 +464,39 @@ def test_container_both_kinds_different_sub(eof_test: EOFTestFiller):
     )
 
 
+def test_container_multiple_eofcreate_references(eof_test: EOFTestFiller):
+    """Test multiple references to the same subcontainer from an EOFCREATE operation"""
+    eof_test(
+        data=Container(
+            sections=[
+                Section.Code(
+                    code=Op.EOFCREATE[0](0, 0, 0, 0) + Op.EOFCREATE[0](0, 0, 0, 0) + Op.STOP,
+                ),
+                returncontract_sub_container,
+            ],
+        ),
+    )
+
+
+def test_container_multiple_returncontract_references(eof_test: EOFTestFiller):
+    """Test multiple references to the same subcontainer from a RETURNCONTACT operation"""
+    eof_test(
+        data=Container(
+            sections=[
+                Section.Code(
+                    code=Op.PUSH0
+                    + Op.CALLDATALOAD
+                    + Op.RJUMPI[6]
+                    + Op.RETURNCONTRACT[0](0, 0)
+                    + Op.RETURNCONTRACT[0](0, 0)
+                ),
+                stop_sub_container,
+            ],
+            kind=ContainerKind.INITCODE,
+        ),
+    )
+
+
 @pytest.mark.parametrize("version", [0, 255], ids=lambda x: x)
 def test_subcontainer_wrong_eof_version(
     eof_test: EOFTestFiller,
@@ -756,3 +789,42 @@ def test_migrated_eofcreate(eof_test: EOFTestFiller, container: Container):
     Tests migrated from EOFTests/efValidation/EOF1_eofcreate_valid_.json.
     """
     eof_test(data=container, expect_exception=container.validity_error)
+
+
+def test_dangling_initcode_subcontainer_bytes(
+    eof_test: EOFTestFiller,
+):
+    """Initcode mode EOF Subcontainer test with subcontainer containing dangling bytes."""
+    eof_test(
+        data=Container(
+            sections=[
+                returncontract_code_section,
+                Section.Container(
+                    container=Container(
+                        raw_bytes=stop_sub_container.data + b"\x99",
+                    ),
+                ),
+            ],
+            kind=ContainerKind.INITCODE,
+        ),
+        expect_exception=EOFException.INVALID_SECTION_BODIES_SIZE,
+    )
+
+
+def test_dangling_runtime_subcontainer_bytes(
+    eof_test: EOFTestFiller,
+):
+    """Runtime mode EOF Subcontainer test with subcontainer containing dangling bytes."""
+    eof_test(
+        data=Container(
+            sections=[
+                eofcreate_code_section,
+                Section.Container(
+                    container=Container(
+                        raw_bytes=returncontract_sub_container.data + b"\x99",
+                    ),
+                ),
+            ],
+        ),
+        expect_exception=EOFException.INVALID_SECTION_BODIES_SIZE,
+    )

@@ -12,6 +12,7 @@ Test fixtures for use by clients are available for each release on the [Github r
 - ✨ Example test `tests/frontier/opcodes/test_dup.py` now includes EOF parametrization ([#610](https://github.com/ethereum/execution-spec-tests/pull/610)).
 - ✨ Convert all opcodes validation test `tests/frontier/opcodes/test_all_opcodes.py` ([#748](https://github.com/ethereum/execution-spec-tests/pull/748)).
 - ✨ Update [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) tests for Devnet-3 ([#733](https://github.com/ethereum/execution-spec-tests/pull/733))
+- 🐞 Fix [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)+EOF tests due to incorrect test expectations and faulty `Conditional` test generator in EOF mode ([#821](https://github.com/ethereum/execution-spec-tests/pull/821))
 
 ### 🛠️ Framework
 
@@ -37,14 +38,23 @@ Test fixtures for use by clients are available for each release on the [Github r
 - 🐞 Fix usage of multiple `@pytest.mark.with_all*` markers which shared parameters, such as `with_all_call_opcodes` and `with_all_create_opcodes` which shared `evm_code_type`, and now only parametrize compatible values ([#762](https://github.com/ethereum/execution-spec-tests/pull/762)).
 - ✨ Added `selector` and `marks` fields to all `@pytest.mark.with_all*` markers, which allows passing lambda functions to select or mark specific parametrized values (see [documentation](https://ethereum.github.io/execution-spec-tests/main/writing_tests/test_markers/#covariant-marker-keyword-arguments) for more information) ([#762](https://github.com/ethereum/execution-spec-tests/pull/762)).
 - ✨ Improves consume input flags for develop and stable fixture releases, fixes `--help` flag for consume ([#745](https://github.com/ethereum/execution-spec-tests/pull/745)).
+- 🐞 Fix erroneous fork message in pytest session header with development forks ([#806](https://github.com/ethereum/execution-spec-tests/pull/806)).
+- 🐞 Fix `Conditional` code generator in EOF mode ([#821](https://github.com/ethereum/execution-spec-tests/pull/821))
+- 🔀 `ethereum_test_rpc` library has been created with what was previously `ethereum_test_tools.rpc` ([#822](https://github.com/ethereum/execution-spec-tests/pull/822))
+- ✨ Add `Wei` type to `ethereum_test_base_types` which allows parsing wei amounts from strings like "1 ether", "1000 wei", "10**2 gwei", etc ([#825](https://github.com/ethereum/execution-spec-tests/pull/825))
 
 ### 🔧 EVM Tools
+
+- ✨ Fill test fixtures using EELS by default. EEST now uses the [`ethereum-specs-evm-resolver`](https://github.com/petertdavies/ethereum-spec-evm-resolver) with the EELS daemon ([#792](https://github.com/ethereum/execution-spec-tests/pull/792)).
 
 ### 📋 Misc
 
 - ✨ Feature releases can now include multiple types of fixture tarball files from different releases that start with the same prefix ([#736](https://github.com/ethereum/execution-spec-tests/pull/736)).
 - ✨ Releases for feature eip7692 now include both Cancun and Prague based tests in the same release, in files `fixtures_eip7692.tar.gz` and `fixtures_eip7692-prague.tar.gz` respectively ([#743](https://github.com/ethereum/execution-spec-tests/pull/743)).
+✨ Re-write the test case reference doc flow as a pytest plugin and add pages for test functions with a table providing an overview of their parametrized test cases ([#801](https://github.com/ethereum/execution-spec-tests/pull/801)).
 - 🔀 Simplify Python project configuration and consolidate it into `pyproject.toml` ([#764](https://github.com/ethereum/execution-spec-tests/pull/764)).
+- 🔀 Created `pytest_plugins.concurrency` plugin to sync multiple `xdist` processes without using a command flag to specify the temporary working folder ([#824](https://github.com/ethereum/execution-spec-tests/pull/824))
+- 🔀 Move pytest plugin `pytest_plugins.filler.solc` to `pytest_plugins.solc.solc` ([#823](https://github.com/ethereum/execution-spec-tests/pull/823)).
 
 ### 💥 Breaking Change
 
@@ -150,8 +160,6 @@ Test fixtures for use by clients are available for each release on the [Github r
 - ✨ The `_info` field in the test fixtures now contains a `hash` field, which is the hash of the test fixture, and a `hasher` script has been added which prints and performs calculations on top of the hashes of all fixtures (see `hasher -h`) ([#454](https://github.com/ethereum/execution-spec-tests/pull/454)).
 - ✨ Adds an optional `verify_sync` field to hive blockchain tests (EngineAPI). When set to true a second client attempts to sync to the first client that executed the tests ([#431](https://github.com/ethereum/execution-spec-tests/pull/431)).
 - 🐞 Fix manually setting the gas limit in the genesis test env for post genesis blocks in blockchain tests ([#472](https://github.com/ethereum/execution-spec-tests/pull/472)).
-
-### 🔧 EVM Tools
 
 ### 📋 Misc
 

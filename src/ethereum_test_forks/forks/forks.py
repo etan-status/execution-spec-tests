@@ -812,14 +812,14 @@ class Prague(Cancun):
         """
         At Prague, SSZ transactions are introduced
         """
-        return [4] + super(Prague, cls).tx_types(block_number, timestamp)
+        return [0x1f] + super(Prague, cls).tx_types(block_number, timestamp)
 
     @classmethod
     def contract_creating_tx_types(cls, block_number: int = 0, timestamp: int = 0) -> List[int]:
         """
         At Prague, SSZ transactions are introduced
         """
-        return [4] + super(Prague, cls).contract_creating_tx_types(block_number, timestamp)
+        return [0x1f] + super(Prague, cls).contract_creating_tx_types(block_number, timestamp)
 
     @classmethod
     def precompiles(cls, block_number: int = 0, timestamp: int = 0) -> List[Address]:

@@ -14,7 +14,7 @@ import snappy
 
 from coincurve.keys import PrivateKey, PublicKey
 from ethereum import rlp as eth_rlp
-from ethereum.base_types import U256, Uint
+from ethereum.base_types import U8, U256, Uint
 from ethereum.crypto.hash import keccak256
 from ethereum.frontier.fork_types import Account as FrontierAccount
 from ethereum.frontier.fork_types import Address as FrontierAddress
@@ -672,7 +672,7 @@ class EngineTransactionFixtureConverter(TransactionFixtureConverter):
             if "type" in payload:
                 tx["type"] = payload.pop("type")
             else:
-                tx["type"] = "0x04"
+                tx["type"] = "0x1f"
             if "chainId" in payload:
                 tx["chainId"] = payload.pop("chainId")
             if "nonce" in payload:
@@ -680,13 +680,13 @@ class EngineTransactionFixtureConverter(TransactionFixtureConverter):
             if "maxFeesPerGas" in payload:
                 maxFeesPerGas = payload.pop("maxFeesPerGas")
                 if "regular" in maxFeesPerGas:
-                    if tx.get("type", None) in ["0x00", "0x01"]:
+                    if tx.get("type", None) in ["0x0", "0x1", "0x00", "0x01"]:
                         tx["gasPrice"] = maxFeesPerGas.pop("regular")
                     else:
                         tx["maxFeePerGas"] = maxFeesPerGas.pop("regular")
                 if "blob" in maxFeesPerGas:
                     tx["maxFeePerBlobGas"] = maxFeesPerGas.pop("blob")
-                    assert payload.get("maxPriorityFeesPerGas", {}).pop("blob", None) == "0x00"
+                    assert payload.get("maxPriorityFeesPerGas", {}).pop("blob", None) == "0x0"
                 assert len(maxFeesPerGas) == 0
             if "maxPriorityFeesPerGas" in payload:
                 maxPriorityFeesPerGas = payload.pop("maxPriorityFeesPerGas")
@@ -704,29 +704,48 @@ class EngineTransactionFixtureConverter(TransactionFixtureConverter):
             if "accessList" in payload:
                 tx["accessList"] = payload.pop("accessList")
             if "blobVersionedHashes" in payload:
-                tx["blobVersionedHashes"] = payload.get("blobVersionedHashes")
+                tx["blobVersionedHashes"] = payload.pop("blobVersionedHashes")
+            if "authorizationList" in payload:
+                tx["authorizationList"] = []
+                for auth in payload.pop("authorizationList"):
+                    a = {}
+                    if "payload" in auth:
+                        pl = auth.pop("payload")
+                        if "chainId" in pl:
+                            a["chainId"] = pl.pop("chainId") or "0x0"
+                        else:
+                            a["chainId"] = "0x0"
+                        if "address" in pl:
+                            a["address"] = pl.pop("address")
+                        if "nonce" in pl:
+                            a["nonce"] = pl.pop("nonce")
+                        assert len(pl) == 0
+                    if "signature" in auth:
+                        sig = auth.pop("signature")
+                        if "secp256k1" in sig:
+                            secp256k1 = bytes.fromhex(sig.pop("secp256k1")[2:])
+                            a["v"] = "0x" + (bytes([secp256k1[64]]).hex() or "0")
+                            a["r"] = "0x" + (U256.from_be_bytes(secp256k1[0:32]).to_be_bytes().hex() or "0")
+                            a["s"] = "0x" + (U256.from_be_bytes(secp256k1[32:64]).to_be_bytes().hex() or "0")
+                        assert len(sig) == 0
+                    assert len(auth) == 0
+                    tx["authorizationList"].append(a)
             assert len(payload) == 0
 
-            from_ = tx.pop("from")
-            secp256k1_signature = bytes.fromhex(from_.pop("secp256k1Signature")[2:])
-            v, r, s = (
-                U256(secp256k1_signature[64]),
-                U256.from_be_bytes(secp256k1_signature[0:32]),
-                U256.from_be_bytes(secp256k1_signature[32:64]),
-            )
-            if tx["type"] == "0x00":
-                if tx.get("chainId", None) is not None:
-                    v += 35 + 2 * U256.from_be_bytes(bytes.fromhex(tx["chainId"][2:]))
-                else:
-                    v += 27
-            if v == 0:
-                tx["v"] = "0x00"
-            else:
-                tx["v"] = "0x" + v.to_be_bytes().hex()
-            tx["r"] = "0x" + r.to_be_bytes().hex()
-            tx["s"] = "0x" + s.to_be_bytes().hex()
-            tx["sender"] = from_.pop("address", None)
-            assert len(from_) == 0
+            if "signature" in tx:
+                sig = tx.pop("signature")
+                if "secp256k1" in sig:
+                    secp256k1 = bytes.fromhex(sig.pop("secp256k1")[2:])
+                    v = U256(secp256k1[64])
+                    if tx["type"] in ["0x0", "0x00"]:
+                        if tx.get("chainId", None) is not None:
+                            v += 35 + 2 * U256.from_be_bytes(bytes.fromhex(tx["chainId"][2:]))
+                        else:
+                            v += 27
+                    tx["v"] = "0x" + (v.to_be_bytes().hex() or "0")
+                    tx["r"] = "0x" + (U256.from_be_bytes(secp256k1[0:32]).to_be_bytes().hex() or "0")
+                    tx["s"] = "0x" + (U256.from_be_bytes(secp256k1[32:64]).to_be_bytes().hex() or "0")
+                assert len(sig) == 0
         return tx
 
     @model_serializer(mode="wrap", when_used="json-unless-none")
@@ -736,7 +755,7 @@ class EngineTransactionFixtureConverter(TransactionFixtureConverter):
             payload = {}
             if "type" in tx:
                 payload["type"] = tx.pop("type")
-                if payload["type"] == "0x04":
+                if payload["type"] == "0x1f":
                     del payload["type"]
             if "chainId" in tx:
                 payload["chainId"] = tx.pop("chainId")
@@ -761,32 +780,52 @@ class EngineTransactionFixtureConverter(TransactionFixtureConverter):
             if "maxFeePerBlobGas" in tx:
                 payload["maxFeesPerGas"]["blob"] = tx.pop("maxFeePerBlobGas")
                 if "maxPriorityFeesPerGas" in payload:
-                    payload["maxPriorityFeesPerGas"]["blob"] = "0x00"
+                    payload["maxPriorityFeesPerGas"]["blob"] = "0x0"
             if "blobVersionedHashes" in tx:
                 payload["blobVersionedHashes"] = tx.pop("blobVersionedHashes")
+            if "authorizationList" in tx:
+                payload["authorizationList"] = []
+                for auth in tx.pop("authorizationList"):
+                    pl = {}
+                    if "chainId" in auth:
+                        pl["chainId"] = auth.pop("chainId")
+                        if pl["chainId"] in ["0x0", "0x00"]:
+                            del pl["chainId"]
+                    if "address" in auth:
+                        pl["address"] = auth.pop("address")
+                    if "nonce" in auth:
+                        pl["nonce"] = auth.pop("nonce")
+                    sig = {}
+                    if "r" in auth and "s" in auth and "v" in auth:
+                        r = U256.from_be_bytes(bytes.fromhex(auth.pop("r")[2:]))
+                        s = U256.from_be_bytes(bytes.fromhex(auth.pop("s")[2:]))
+                        y_parity = U256.from_be_bytes(bytes.fromhex(auth.pop("v")[2:]))
+                        sig["secp256k1"] = "0x" + (
+                            r.to_be_bytes32() + s.to_be_bytes32() + bytes([U8(y_parity)])
+                        ).hex()
+                    payload["authorizationList"].append({
+                        "payload": pl,
+                        "signature": sig,
+                    })
             tx["payload"] = payload
 
-            from_ = {}
-            if "sender" in tx:
-                from_["address"] = tx.pop("sender")
-            if "v" in tx or "r" in tx or "s" in tx:
-                v = U256.from_be_bytes(bytes.fromhex(tx.pop("v")[2:]))
+            signature = {}
+            if "r" in tx and "s" in tx and "v" in tx:
                 r = U256.from_be_bytes(bytes.fromhex(tx.pop("r")[2:]))
                 s = U256.from_be_bytes(bytes.fromhex(tx.pop("s")[2:]))
-                if payload.get("type", None) == "0x00":
-                    y_parity = (v & 0x1) == 0
+                v = U256.from_be_bytes(bytes.fromhex(tx.pop("v")[2:]))
+                if payload.get("type", None) in ["0x0", "0x00"]:
+                    y_parity = ((v & 0x1) == 0)
                 else:
                     y_parity = (v != 0)
-                from_["secp256k1Signature"] = "0x" + (
-                    r.to_be_bytes32() + s.to_be_bytes32()
-                    + bytes([0x01 if y_parity else 0x00])
+                signature["secp256k1"] = "0x" + (
+                    r.to_be_bytes32() + s.to_be_bytes32() + bytes([U8(y_parity)])
                 ).hex()
-            tx["from"] = from_
+            tx["signature"] = signature
+
+            del tx["sender"]
         return tx
 
-
-class TransactionType(uint8):
-    pass
 
 class Hash32(Bytes32):
     pass
@@ -797,25 +836,30 @@ class ExecutionAddress(ByteVector[20]):
 class VersionedHash(Bytes32):
     pass
 
-class ChainId(uint64):
-    pass
-
-class FeePerGas(uint256):
-    pass
-
 SECP256K1_SIGNATURE_SIZE = 32 + 32 + 1
-MAX_TRANSACTION_SIGNATURE_FIELDS = uint64(2**4)
+MAX_EXECUTION_SIGNATURE_FIELDS = uint64(2**3)
+
+class ExecutionSignature(StableContainer[MAX_EXECUTION_SIGNATURE_FIELDS]):
+    secp256k1: Optional[ByteVector[SECP256K1_SIGNATURE_SIZE]]
+
 MAX_FEES_PER_GAS_FIELDS = uint64(2**4)
 MAX_CALLDATA_SIZE = uint64(2**24)
 MAX_ACCESS_LIST_STORAGE_KEYS = uint64(2**19)
 MAX_ACCESS_LIST_SIZE = uint64(2**19)
 MAX_BLOB_COMMITMENTS_PER_BLOCK = uint64(2**12)
+MAX_AUTHORIZATION_PAYLOAD_FIELDS = uint64(2**4)
+MAX_AUTHORIZATION_LIST_SIZE = uint64(2**16)
 MAX_TRANSACTION_PAYLOAD_FIELDS = uint64(2**5)
 MAX_TRANSACTIONS_PER_PAYLOAD = uint64(2**20)
 
-class ExecutionSignature(StableContainer[MAX_TRANSACTION_SIGNATURE_FIELDS]):
-    address: Optional[ExecutionAddress]
-    secp256k1_signature: Optional[ByteVector[SECP256K1_SIGNATURE_SIZE]]
+class TransactionType(uint8):
+    pass
+
+class ChainId(uint64):
+    pass
+
+class FeePerGas(uint256):
+    pass
 
 class FeesPerGas(StableContainer[MAX_FEES_PER_GAS_FIELDS]):
     regular: Optional[FeePerGas]
@@ -826,6 +870,16 @@ class FeesPerGas(StableContainer[MAX_FEES_PER_GAS_FIELDS]):
 class AccessTuple(Container):
     address: ExecutionAddress
     storage_keys: SszList[Hash32, MAX_ACCESS_LIST_STORAGE_KEYS]
+
+class AuthorizationPayload(StableContainer[MAX_AUTHORIZATION_PAYLOAD_FIELDS]):
+    magic: Optional[TransactionType]
+    chain_id: Optional[ChainId]
+    address: Optional[ExecutionAddress]
+    nonce: Optional[uint64]
+
+class Authorization(Container):
+    payload: AuthorizationPayload
+    signature: ExecutionSignature
 
 class TransactionPayload(StableContainer[MAX_TRANSACTION_PAYLOAD_FIELDS]):
     # EIP-2718
@@ -850,9 +904,12 @@ class TransactionPayload(StableContainer[MAX_TRANSACTION_PAYLOAD_FIELDS]):
     # EIP-4844
     blob_versioned_hashes: Optional[SszList[VersionedHash, MAX_BLOB_COMMITMENTS_PER_BLOCK]]
 
+    # EIP-7702
+    authorization_list: Optional[SszList[Authorization, MAX_AUTHORIZATION_LIST_SIZE]]
+
 class SszTransaction(Container):
     payload: TransactionPayload
-    from_: ExecutionSignature
+    signature: ExecutionSignature
 
 class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConverter):
     """
@@ -962,6 +1019,9 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
 
         if "nonce" not in self.model_fields_set and self.sender is not None:
             self.nonce = HexNumber(self.sender.get_nonce())
+
+        if self.v is not None and self.sender is None:
+            self = self.with_signature_and_sender()
 
     def with_error(
         self, error: List[TransactionException] | TransactionException
@@ -1210,11 +1270,11 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
 
         return SszTransaction(
             payload=TransactionPayload(
-                type_=TransactionType(tx.ty) if tx.ty != 4 else None,
-                chain_id=tx.chain_id,
+                type_=TransactionType(tx.ty) if tx.ty != 0x1f else None,
+                chain_id=tx.chain_id if tx.ty != 0 or tx.protected else None,
                 nonce=tx.nonce,
                 max_fees_per_gas=FeesPerGas(
-                    regular=tx.max_fee_per_gas if "max_fee_per_gas" in tx else tx.gas_price,
+                    regular=tx.max_fee_per_gas if tx.max_fee_per_gas is not None else tx.gas_price,
                     blob=tx.max_fee_per_blob_gas,
                 ),
                 gas=tx.gas_limit,
@@ -1227,19 +1287,33 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
                 ) for access_tuple in tx.access_list] if tx.access_list is not None else None,
                 max_priority_fees_per_gas=FeesPerGas(
                     regular=tx.max_priority_fee_per_gas,
-                    blob=0 if "max_fee_per_blob_gas" in tx else None,
-                ) if "max_priority_fee_per_gas" in tx else None,
+                    blob=0 if tx.max_fee_per_blob_gas is not None else None,
+                ) if tx.max_priority_fee_per_gas is not None else None,
                 blob_versioned_hashes=tx.blob_versioned_hashes,
+                authorization_list=[Authorization(
+                    payload=AuthorizationPayload(
+                        magic=0x05,
+                        chain_id=auth.chain_id if auth.chain_id != 0 else None,
+                        address=auth.address,
+                        nonce=auth.nonce,
+                    ),
+                    signature=ExecutionSignature(
+                        secp256k1=(
+                            auth.r.to_bytes(32, byteorder="big")
+                            + auth.s.to_bytes(32, byteorder="big")
+                            + auth.v.to_bytes(1, byteorder="big")
+                        ),
+                    ),
+                ) for auth in tx.authorization_list] if tx.authorization_list is not None else None,
             ),
-            from_=ExecutionSignature(
-                address=tx.sender,
-                secp256k1_signature=self.signature_bytes if tx.r is not None else None,
+            signature=ExecutionSignature(
+                secp256k1=self.signature_bytes if tx.r is not None else None,
             ),
         )
 
     @cached_property
     def ssz_bytes(self) -> bytes:
-        return bytes([0x04]) + snappy.StreamCompressor().add_chunk(self.ssz.encode_bytes())
+        return bytes([0x1f]) + snappy.StreamCompressor().add_chunk(self.ssz.encode_bytes())
 
     @cached_property
     def hash(self) -> Hash:
@@ -1290,7 +1364,7 @@ class Transaction(TransactionGeneric[HexNumber], TransactionTransitionToolConver
         """
         Returns the transactions root of a list of transactions.
         """
-        if 4 in fork.tx_types():
+        if 0x1f in fork.tx_types():
             return Hash(SszList[SszTransaction, MAX_TRANSACTIONS_PER_PAYLOAD](
                 [tx.ssz for tx in input_txs]
             ).hash_tree_root())

@@ -1,7 +1,7 @@
 stable:
-  impl: geth
-  repo: ethereum/go-ethereum
-  ref: master
+  impl: eels
+  repo: null
+  ref: null
 develop:
   impl: geth
   repo: lightclient/go-ethereum
@@ -14,3 +14,7 @@ eip7692-prague:
   impl: besu
   repo: hyperledger/besu
   ref: main
+pectra-devnet-3:
+  impl: ethjs
+  repo: ethereumjs/ethereumjs-monorepo
+  ref: t8ntool

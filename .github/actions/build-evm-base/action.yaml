@@ -44,6 +44,10 @@ runs:
         echo "Reference: ${{ steps.config-evm-reader.outputs.ref }}"
         echo "EVM Binary: ${{ steps.config-evm-impl-config-reader.outputs.evm-bin }}"
         echo "X-Dist parameter: ${{ steps.config-evm-impl-config-reader.outputs.x-dist }}"
+    - name: Skip building for EELS
+      if: steps.config-evm-reader.outputs.impl == 'eels'
+      shell: bash
+      run: echo "Skipping build for EELS"
     - name: Build the EVM using Geth action
       if: steps.config-evm-reader.outputs.impl == 'geth'
       uses: ./.github/actions/build-evm-client/geth
@@ -59,6 +63,12 @@ runs:
     - name: Build the EVM using Besu action
       if: steps.config-evm-reader.outputs.impl == 'besu'
       uses: ./.github/actions/build-evm-client/besu
+      with:
+        repo: ${{ steps.config-evm-reader.outputs.repo }}
+        ref: ${{ steps.config-evm-reader.outputs.ref }}
+    - name: Build the EVM using EthJS action
+      if: steps.config-evm-reader.outputs.impl == 'ethjs'
+      uses: ./.github/actions/build-evm-client/ethjs
       with:
         repo: ${{ steps.config-evm-reader.outputs.repo }}
         ref: ${{ steps.config-evm-reader.outputs.ref }}
